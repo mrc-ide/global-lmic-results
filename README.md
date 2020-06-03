@@ -15,9 +15,9 @@ the results. The structure within analysis is as follows:
 
     analysis/
         |
-        ├── 01_xxxxx            # analysis scripts used for generating figures
+        ├── 01_xxxxx /           # analysis scripts used for generating figures
         |
-        ├── figures/            # location of figures produced by the analysis scripts
+        ├── figures/              # location of figures produced by the analysis scripts
         |
         ├── data/
         │   ├── DO-NOT-EDIT-ANY-FILES-IN-HERE-BY-HAND
@@ -55,11 +55,9 @@ data.
 
 The `analysis/` directory contains:
 
-  - the manuscript as submitted (in MS Word format) and it’s Rmd source
-    file
-  - all the data files (in CSV format, in the `data/` directory)  
-  - supplementary information source files (in R markdown format) and
-    executed versions
+  - all the data files (in csv or rds format, in the `data/`
+    directory)  
+  - all analysis R scripts (in the `01_xxxx` directories)
   - all the figures that are included in the paper (in the `figures/`
     directory)
 
