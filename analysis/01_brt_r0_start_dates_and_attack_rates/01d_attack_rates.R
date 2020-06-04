@@ -3,7 +3,9 @@
 library(globallmicresults)
 library(tidyverse)
 
+##  ------------------------------
 ## Analysis ------------------------------
+##  ------------------------------
 
 # get the reports
 reports <- reports_day(date_0)
@@ -33,8 +35,9 @@ attack_rates <- pbapply::pblapply(seq_along(reports$id), function(x) {
 attack_rates <- do.call(rbind, attack_rates)
 attack_rates$continent <- countrycode::countrycode(attack_rates$iso, "iso3c", "continent")
 
-
+##  ------------------------------
 ## Plotting ------------------------------
+##  ------------------------------
 
 ## Plot to show continental range in attack rates
 ar_plot <- ggplot(attack_rates, aes(x=ar, fill=continent)) +

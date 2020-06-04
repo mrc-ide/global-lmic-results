@@ -3,6 +3,10 @@
 library(globallmicresults)
 library(tidyverse)
 
+##  ------------------------------
+## Analysis ------------------------------
+##  ------------------------------
+
 # get the reports
 grids <- grid_out_list(date_0)
 
@@ -28,4 +32,9 @@ param_sums <- lapply(seq_along(grids), function(i) {
 
 params <- do.call(rbind, param_sums)
 
-## Some plot to show the global range in R0 and start date
+
+##  ------------------------------
+## Plotting ------------------------------
+##  ------------------------------
+
+## Plot to show the global range in R0 and start date

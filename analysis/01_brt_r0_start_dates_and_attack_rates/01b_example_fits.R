@@ -3,3 +3,13 @@
 library(globallmicresults)
 library(tidyverse)
 
+##  ------------------------------
+## Analysis ------------------------------
+##  ------------------------------
+
+# load the correct brt model
+brt_model <- get_brt_model(date_0)
+
+##  ------------------------------
+## Plotting ------------------------------
+##  ------------------------------

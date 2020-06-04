@@ -37,8 +37,6 @@ reports_day <- function(date = NULL) {
   id <- DBI::dbGetQuery(db, sql, date)$id
   if (length(id) == 0L) {
     stop(sprintf("No 'ecdc' report for '%s'", as.character(date)))
-  } else if (length(id) > 1) {
-    message(sprintf("Multiple 'ecdc' reports for '%s'", as.character(date)))
   }
 
   ## Then find all lmic_reports reports that use files from this ecdc
@@ -93,7 +91,7 @@ grid_out_list <- function(date) {
 }
 
 #' @noRd
-brt_get <- function(date) {
+get_brt_model <- function(date) {
 
   wd <- file.path(here::here(),"analysis/data/raw_data/server_results/")
   wdold <- getwd()
@@ -119,8 +117,6 @@ brt_get <- function(date) {
   id <- DBI::dbGetQuery(db, sql, date)$id
   if (length(id) == 0L) {
     stop(sprintf("No 'ecdc' report for '%s'", as.character(date)))
-  } else if (length(id) > 1) {
-    message(sprintf("Multiple 'ecdc' reports for '%s'", as.character(date)))
   }
 
 
@@ -140,3 +136,51 @@ brt_get <- function(date) {
   return(brt)
 
   }
+
+
+#' @noRd
+get_brt_predictions <- function(date) {
+
+  wd <- file.path(here::here(),"analysis/data/raw_data/server_results/")
+  wdold <- getwd()
+  setwd(wd)
+
+  db <- orderly::orderly_db("destination")
+  if (is.null(date)) {
+    date <- as.character(Sys.Date())
+  }
+
+  ## First find the id corresponding to the ecdc report with data.  If
+  ## there are more than one, it's not totally clear what you want to
+  ## do as you might want to take the earliest or the latest.
+  ## Probably we want to take *all* and do the join over that, which
+  ## is easy enough to do if you replace the '= $1' and replace with
+  ## 'IN (%s)' and interpolate 'paste(sprintf('"%s"', id), collapse = ", ")'
+  sql <- 'SELECT report_version.id
+            FROM report_version
+            JOIN parameters
+              ON parameters.report_version = report_version.id
+           WHERE report_version.report = "ecdc"
+             AND parameters.value = $1'
+  id <- DBI::dbGetQuery(db, sql, date)$id
+  if (length(id) == 0L) {
+    stop(sprintf("No 'ecdc' report for '%s'", as.character(date)))
+  }
+
+
+  sql <- 'SELECT report_version.id
+            FROM report_version
+            JOIN parameters
+              ON parameters.report_version = report_version.id
+           WHERE report_version.report = "brt_google_mobility"
+             AND parameters.value = $1'
+  sql <- sprintf(sql, paste(sprintf('"%s"', id), collapse = ", "))
+  reports <- DBI::dbGetQuery(db, sql, date)
+  brt_id_max <- max(reports$id)
+
+  # copy brt
+  src <- file.path(wd, "archive", "brt_google_mobility", brt_id_max, "google_brt.rds")
+  brt <- readRDS(src)
+  return(brt)
+
+}
