@@ -10,6 +10,8 @@ library(tidyverse)
 ## 1. Get the correct meff data, ecdc data, google mobility data
 
 reports <- reports_day(date_0)
+brt <- get_brt_predictions(date_0)
+
 meffs <- pbapply::pblapply(seq_along(reports$id), function(x) {
 
   iso <- reports$country[x]
@@ -63,6 +65,25 @@ meff_sum <- group_by(meff_all, iso, continent, country) %>%
   as.data.frame()
 rownames(meff_sum) <- meff_sum$country
 
+
+# death_dates
+ecdc <- get_ecdc(date_0)
+meff_sum$death_date <- vapply(meff_sum$iso, function(x) {
+  e <- ecdc[ecdc$countryterritoryCode==x, ]
+  as.Date(e$dateRep[max(which(e$deaths>0))])
+}, numeric(1)) - as.numeric(as.Date("2020-01-01"))
+
+
+# add minimum mobility date relative to start of epidemic
+meff_sum$rel_mob_min_date <- vapply(meff_sum$iso, function(x) {
+  mobdf <- brt[[x]]
+  m <- predict(loess(C~as.numeric(date), data=mobdf, span = 0.2), type = "response")
+  mob_min_date <- mobdf$date[which.min(m)]
+  return(mob_min_date)},
+  numeric(1)) - meff_sum$date - as.numeric(as.Date("2020-01-01"))
+
+
+
 # leave out hospital capacities at the moment
 # meff_sum$hosp <- vapply(meff_sum$iso, function(x) {
 #   squire:::get_hosp_bed_capacity(squire::get_population(iso3c = x)$country[1])
@@ -72,13 +93,6 @@ rownames(meff_sum) <- meff_sum$country
 # }, numeric(1))
 # meff_sum$hosp <- meff_sum$hosp/sum(meff_sum$hosp)
 # meff_sum$icu <- meff_sum$icu/sum(meff_sum$icu)
-
-# death_dates
-ecdc <- get_ecdc(date_0)
-meff_sum$death_date <- vapply(meff_sum$iso, function(x) {
-  e <- ecdc[ecdc$countryterritoryCode==x, ]
-  as.Date(e$dateRep[max(which(e$deaths>0))])
-}, numeric(1)) - as.numeric(as.Date("2020-01-01"))
 
 ## 2. PCA and k-means to identify clusters
 
@@ -105,9 +119,9 @@ factoextra::fviz_nbclust(pca_plot$data[,1:2], kmeans, method = "silhouette")
 # gap statistic method
 gap_stat <- cluster::clusGap(pca_plot$data[,1:2], FUN = kmeans, nstart = 25,
                              K.max = 10, B = 50)
-fviz_gap_stat(gap_stat)
+factoextra::fviz_gap_stat(gap_stat)
 
-## simple kmeans on the reduced dimension with 7 clusters as a result
+## simple kmeans on the reduced dimension with 6 clusters as a result
 kmeans_out <- kmeans(pca_plot$data[,1:2], centers = 7)
 clust <- fviz_cluster(kmeans_out, data = pca_plot$data[,1:2], repel = TRUE) +
   theme_bw() +
