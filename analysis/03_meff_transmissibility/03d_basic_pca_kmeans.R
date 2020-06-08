@@ -1,13 +1,27 @@
 ## 01a Boosted Regression Tree
 
-library(globallmicresults)
-library(tidyverse)
+packages <- c("devtools", "ggfortify", "factoextra", "cowplot")
+install.packages(packages)
+
+library(devtools)
+library(ggfortify)
+library(factoextra)
+library(cowplot)
+devtools::load_all()
+devtools::install_deps()
 
 ##  ------------------------------
 ## Analysis ------------------------------
 ##  ------------------------------
 
+## 0. load source scripts
+source("R/data_incoming.R")3
+source("R/reports.R")
+
 ## 1. Get the correct meff data, ecdc data, google mobility data
+
+## default for date_0
+date_0 <- "2020-06-01"
 
 reports <- reports_day(date_0)
 brt <- get_brt_predictions(date_0)
@@ -99,7 +113,7 @@ meff_sum$rel_mob_min_date <- vapply(meff_sum$iso, function(x) {
 ## simple pca
 pca <- prcomp(meff_sum[,(4:ncol(meff_sum))],scale. = TRUE)
 #pca <- prcomp(meff_sum[,c(4,7,8)],scale. = TRUE)
-library(ggfortify)
+
 pca_plot <- autoplot(pca, data = meff_sum, colour = 'continent', label = TRUE,
          label.repel = FALSE, label.show.legend = FALSE) + theme_bw()
 
@@ -107,7 +121,7 @@ pca_plot <- autoplot(pca, data = meff_sum, colour = 'continent', label = TRUE,
 contribution <- sweep(abs(pca$rotation), 2, colSums(abs(pca$rotation)), "/") * 100
 
 # Need to look at how many clusters though
-library(factoextra)
+
 
 ## I tend to use both the simple silhouette method and the gap statistic approach
 ## and look for agreement. In general if I see a second obvious peak at high clusters
