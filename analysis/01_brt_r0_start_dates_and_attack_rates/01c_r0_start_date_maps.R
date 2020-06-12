@@ -87,7 +87,8 @@ Date_start_map <- ggplot() +
   geom_polygon(data = map_data_and_shape,
                aes(x = long, y = lat, group = group, fill = as.numeric(start_date_mid)), color = "black", size = 0.1) +
   theme_void() +
-  scale_fill_viridis_c(breaks = as.numeric(lab_dates),
+  scale_fill_viridis(option = "C",
+                     breaks = as.numeric(lab_dates),
                      labels = lab_dates) +
   labs(fill = "Starting Date",
        ylab = "",
