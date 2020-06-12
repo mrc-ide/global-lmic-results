@@ -1,6 +1,6 @@
 ## 01c Plotting Maps of Start Dates and R0
 
-library(globallmicresults)
+# library(globallmicresults)
 library(tidyverse)
 library(lubridate)
 library(rgdal)
