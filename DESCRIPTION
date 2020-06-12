@@ -20,5 +20,3 @@ Imports:
     DBI,
     pbapply,
     squire (>= 0.4.15)
-Remotes:
-    mrc-ide/squire
