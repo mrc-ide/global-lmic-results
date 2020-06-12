@@ -1,31 +1,20 @@
-## 01a Boosted Regression Tree
+# Loading Required Libraries and Dependencies
+library(devtools);  library(ggfortify); library(factoextra); library(cowplot)
+library(pbapply); library(tidyverse); library(MALDIquant); library(rgl);
+library(patchwork); library(fmsb)
+#devtools::load_all()
+#devtools::install_deps()
+set.seed(10)
 
-packages <- c("devtools", "ggfortify", "factoextra", "cowplot")
-install.packages(packages)
-
-library(devtools)
-library(ggfortify)
-library(factoextra)
-library(cowplot)
-devtools::load_all()
-devtools::install_deps()
-
-##  ------------------------------
-## Analysis ------------------------------
-##  ------------------------------
-
-## 0. load source scripts
-source("R/data_incoming.R")3
+# Loading Required Functions and Scripts
+setwd(here::here())
+source("R/data_incoming.R")
 source("R/reports.R")
 
-## 1. Get the correct meff data, ecdc data, google mobility data
-
-## default for date_0
+# Getting Correct Meff Data, ECDC Data, Google Mobility Data Etc
 date_0 <- "2020-06-01"
-
 reports <- reports_day(date_0)
 brt <- get_brt_predictions(date_0)
-
 meffs <- pbapply::pblapply(seq_along(reports$id), function(x) {
 
   iso <- reports$country[x]
@@ -63,104 +52,137 @@ meffs <- pbapply::pblapply(seq_along(reports$id), function(x) {
   return(df)
 })
 
-
-# format data
+# Creating the meff_all dataframe, converting dates and then summarising to 1 value per country
 meff_all <- do.call(rbind, meffs)
 meff_all$continent <- countrycode::countrycode(meff_all$iso, "iso3c", "continent")
 meff_all$country <- countrycode::countrycode(meff_all$iso, "iso3c", "country.name")
-
-# turn date into numeric for days since start of year
-meff_all$date <- as.numeric(as.Date(meff_all$date)) - as.numeric(as.Date("2020-01-01"))
-
-# group and summarise so have one value per country
+meff_all$start_date <- as.numeric(as.Date(meff_all$date)) - as.numeric(as.Date("2020-01-01"))
+index <- which(colnames(meff_all) == "date")
+meff_all <- meff_all[, -index] 
 meff_sum <- group_by(meff_all, iso, continent, country) %>%
   summarise_all(mean) %>%
   ungroup %>%
   as.data.frame()
 rownames(meff_sum) <- meff_sum$country
 
-
-# death_dates
-ecdc <- get_ecdc(date_0)
-meff_sum$death_date <- vapply(meff_sum$iso, function(x) {
-  e <- ecdc[ecdc$countryterritoryCode==x, ]
-  as.Date(e$dateRep[max(which(e$deaths>0))])
-}, numeric(1)) - as.numeric(as.Date("2020-01-01"))
-
-
-# add minimum mobility date relative to start of epidemic
+# Adding in date of minimum mobility relative to start of epidemic
 meff_sum$rel_mob_min_date <- vapply(meff_sum$iso, function(x) {
   mobdf <- brt[[x]]
   m <- predict(loess(C~as.numeric(date), data=mobdf, span = 0.2), type = "response")
   mob_min_date <- mobdf$date[which.min(m)]
   return(mob_min_date)},
-  numeric(1)) - meff_sum$date - as.numeric(as.Date("2020-01-01"))
+  numeric(1)) - meff_sum$start_date - as.numeric(as.Date("2020-01-01"))
+meff_sum$date_of_epidemic_start <- as.Date(meff_sum$start_date, origin = "2020-01-01")
+meff_sum$date_minimum_mobility <- as.Date(meff_sum$rel_mob_min_date + meff_sum$start_date, origin = "2020-01-01")
 
-
-
-# leave out hospital capacities at the moment
-# meff_sum$hosp <- vapply(meff_sum$iso, function(x) {
-#   squire:::get_hosp_bed_capacity(squire::get_population(iso3c = x)$country[1])
-# }, numeric(1))
-# meff_sum$icu <- vapply(meff_sum$iso, function(x) {
-#   squire:::get_ICU_bed_capacity(squire::get_population(iso3c = x)$country[1])
-# }, numeric(1))
-# meff_sum$hosp <- meff_sum$hosp/sum(meff_sum$hosp)
-# meff_sum$icu <- meff_sum$icu/sum(meff_sum$icu)
-
-## 2. PCA and k-means to identify clusters
-
-## simple pca
-pca <- prcomp(meff_sum[,(4:ncol(meff_sum))],scale. = TRUE)
-#pca <- prcomp(meff_sum[,c(4,7,8)],scale. = TRUE)
-
-pca_plot <- autoplot(pca, data = meff_sum, colour = 'continent', label = TRUE,
-         label.repel = FALSE, label.show.legend = FALSE) + theme_bw()
-
-# what is the contribution of our covariates to the components
+# PCA and k-means to identify clusters
+clustering_variables <- c("R0", "Rt_min", "Meff", "start_date", "max_mobility_change", "rel_mob_min_date")
+cor(meff_sum[, clustering_variables])
+pca <- prcomp(meff_sum[, clustering_variables], scale. = TRUE)
+summary(pca)
 contribution <- sweep(abs(pca$rotation), 2, colSums(abs(pca$rotation)), "/") * 100
 
-# Need to look at how many clusters though
-
-
-## I tend to use both the simple silhouette method and the gap statistic approach
-## and look for agreement. In general if I see a second obvious peak at high clusters
-## I go for that
-
-# silhoette method simplest
-factoextra::fviz_nbclust(pca_plot$data[,1:2], kmeans, method = "silhouette")
-
-# gap statistic method
-gap_stat <- cluster::clusGap(pca_plot$data[,1:2], FUN = kmeans, nstart = 25,
-                             K.max = 10, B = 50)
+# Checking optimal cluster number using silhouette and gap statistic methods
+factoextra::fviz_nbclust(pca$x[, 1:ncol(pca$x)], kmeans, method = "silhouette")
+gap_stat <- cluster::clusGap(pca$x[, 1:ncol(pca$x)], FUN = kmeans, nstart = 25, K.max = 10, B = 50)
 factoextra::fviz_gap_stat(gap_stat)
 
-## simple kmeans on the reduced dimension with 6 clusters as a result
-kmeans_out <- kmeans(pca_plot$data[,1:2], centers = 7)
-clust <- fviz_cluster(kmeans_out, data = pca_plot$data[,1:2], repel = TRUE) +
+# Clustering For Plotting Based On the First 2 Principal Components 
+number_clusters <- 6
+kmeans_out_plot <- kmeans(pca$x[, 1:2], centers = number_clusters)
+clust <- fviz_cluster(kmeans_out_plot, data = pca$x[, 1:2], repel = TRUE) +
   theme_bw() +
-  theme(legend.position = "none", plot.title = element_blank())
-
-## 3. Work out the centroids parmeters as the mean of the values of countries in clusters
-
-centers <- kmeans_out$centers
-parms <- t(t(centers %*% t(pca$rotation[,1:2])) * pca$scale + pca$center)
-
-
-
-##  ------------------------------
-## Plotting ------------------------------
-##  ------------------------------
-
-# check size before saving
-x11(width = 12,height = 12)
+  theme(legend.position = "right", plot.title = element_blank())
 clust
-cowplot::save_plot(plot = clust,
-                   filename = file.path(here::here(),"analysis/figures/03d_clustering.png"),
-                   base_height = 12,
-                   base_width = 12)
 
-cowplot::save_plot(plot = clust,
-                   filename = file.path(here::here(),"analysis/figures/03d_clustering.svg"),
-                   base_height = 12,
-                   base_width = 12)
+# Clustering For Comparison of Empirical Properties Based On All Principal Components
+kmeans_out_examine <- kmeans(pca$x[, 1:ncol(pca$x)], centers = number_clusters)
+meff_sum$cluster <- unname(kmeans_out_examine$cluster)
+
+# Summarising Results By Cluster, Getting the Mean and SD
+summary <- meff_sum %>%
+  group_by(cluster) %>%
+  summarise(n = n(), 
+            R0_mean = mean(R0), 
+            Rt_min_mean = mean(Rt_min), 
+            Meff_mean = mean(Meff), 
+            max_mobility_change_mean = mean(max_mobility_change), 
+            start_date_mean = mean(start_date),
+            rel_mob_min_date = mean(rel_mob_min_date))
+summary_plot <- summary %>%
+  gather(metric, value, -cluster, -n)
+
+summary_sd <- meff_sum %>%
+  group_by(cluster) %>%
+  summarise(n = n(), 
+            R0_sd = sd(R0), 
+            Rt_min_sd = sd(Rt_min)/sqrt(n), 
+            Meff_sd = sd(Meff)/sqrt(n), 
+            max_mobility_change_sd = sd(max_mobility_change)/sqrt(n), 
+            start_date_sd = sd(start_date)/sqrt(n),
+            rel_mob_min_date_sd = sd(rel_mob_min_date)/sqrt(n)) %>%
+  gather(metric, sd, -cluster, -n)
+
+summary_plot$sd <- summary_sd$sd
+
+b <- ggplot(summary_plot, aes(x = cluster, y = value, fill = factor(cluster))) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~as.factor(metric), scales = "free") +
+  geom_errorbar(aes(ymin = value - 1.96 * sd, ymax = value + 1.96 * sd), width = 0.2) +
+  theme_bw()
+b
+
+clust + b
+
+# Radar Plots
+min <- c(2, 0.25, 2, 0.25, 0)
+max <- c(3.1, 2, 6.5, 1, 90)
+
+radar_1 <- summary[1, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_1) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_1 <- rbind(max, min, radar_1)
+
+radar_2 <- summary[2, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_2) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_2 <- rbind(max, min, radar_2)
+
+radar_3 <- summary[3, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_3) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_3 <- rbind(max, min, radar_3)
+
+radar_4 <- summary[4, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_4) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_4 <- rbind(max, min, radar_4)
+
+radar_5 <- summary[5, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_5) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_5 <- rbind(max, min, radar_5)
+
+radar_6 <- summary[6, c("R0_mean", "Rt_min_mean", "Meff_mean", "max_mobility_change_mean", "rel_mob_min_date")]
+colnames(radar_6) <- c("R0" , "Rt_min" , "Meff" , "mob_red" , "date")
+radar_6 <- rbind(max, min, radar_6)
+
+
+colors_border=c( rgb(0.2,0.5,0.5,0.9), rgb(0.8,0.2,0.5,0.9) , rgb(0.7,0.5,0.1,0.9), rgb(249/256, 86/256, 79/256, 0.9), rgb(58/256, 169/256, 98/256, 0.9), rgb(123/256, 30/256, 122/256, 0.9))
+colors_in=c( rgb(0.2,0.5,0.5,0.4), rgb(0.8,0.2,0.5,0.4) , rgb(0.7,0.5,0.1,0.4), rgb(249/256, 86/256, 79/256, 0.4), rgb(58/256, 169/256, 98/256, 0.4), rgb(123/256, 30/256, 122/256, 0.4))
+
+# plot with default options:
+par(mfrow = c(2,3), mar=c(1, 1, 1, 1))
+radarchart(radar_1 , pcol=colors_border[1], pfcol=colors_in[1], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
+radarchart(radar_2 , pcol=colors_border[2], pfcol=colors_in[2], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
+radarchart(radar_3 , pcol=colors_border[3], pfcol=colors_in[3], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
+radarchart(radar_4 , pcol=colors_border[4], pfcol=colors_in[4], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
+radarchart(radar_5 , pcol=colors_border[5], pfcol=colors_in[5], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
+radarchart(radar_6, pcol=colors_border[6], pfcol=colors_in[6], plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,20,5), 
+           cglwd=0.8, vlcex=0.8)
