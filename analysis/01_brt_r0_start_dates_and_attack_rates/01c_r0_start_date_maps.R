@@ -38,19 +38,17 @@ param_sums <- lapply(seq_along(grids), function(i) {
   return(df)
 })
 
-params <- do.call(rbind, param_sums)
+params <- do.call(rbind, param_sums) %>%
+  filter(var == "R0")
 
-
-##  ------------------------------
-## Plotting ------------------------------
-##  ------------------------------
-map_data_and_shape <- read.csv("analysis/data/map_plot_data/start_R0_Meff_date.csv", stringsAsFactors = FALSE)
-map_data_and_shape$start_date_mid <- as.Date(map_data_and_shape$start_date_mid, origin = ymd("1970/01/01"))
+map_data_and_shape <- read.csv("analysis/data/map_plot_data/start_R0_Meff_date.csv", stringsAsFactors = FALSE) %>%
+  select(long, lat, group, GID_0) %>%
+  left_join(params, by = c("GID_0" = "iso"))
 
 #Plotting R0 start
 R0_start_map <- ggplot() +
   geom_polygon(data = map_data_and_shape,
-               aes(x = long, y = lat, group = group, fill = R0_mid), color = "black", size = 0.1) +
+               aes(x = long, y = lat, group = group, fill = y), color = "black", size = 0.1) +
   theme_void() +
   scale_fill_viridis(option = "C") +
   labs(fill = "Starting R0",
@@ -60,46 +58,5 @@ R0_start_map <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         axis.ticks = element_blank())
-
-Meff_start_map <- ggplot() +
-  geom_polygon(data = map_data_and_shape,
-               aes(x = long, y = lat, group = group, fill = Meff_mid), color = "black", size = 0.1) +
-  theme_void() +
-  scale_fill_viridis(option = "C") +
-  labs(fill = "Starting Meff",
-       ylab = "",
-       xlab = "") +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.ticks = element_blank())
-
-lab_dates <- pretty(map_data_and_shape$start_date_mid, n = 5)
-Date_start_map <- ggplot() +
-  geom_polygon(data = map_data_and_shape,
-               aes(x = long, y = lat, group = group, fill = as.numeric(start_date_mid)), color = "black", size = 0.1) +
-  theme_void() +
-  scale_fill_viridis(option = "C",
-                     breaks = as.numeric(lab_dates),
-                     labels = lab_dates) +
-  labs(fill = "Starting Date",
-       ylab = "",
-       xlab = "") +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.ticks = element_blank())
-
-
-all_maps <- ggarrange(R0_start_map,
-                      Meff_start_map,
-                      Date_start_map,
-                      ncol = 1)
-
-
-ggsave("analysis/figures/01c_R0_start_date_maps.png", height = 6, width = 6, dpi = 400)
-
-
-
 
 
