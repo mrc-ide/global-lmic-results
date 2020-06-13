@@ -180,7 +180,7 @@ actual_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   
   code <- countries[i]
   country <- countrycode::countrycode(code, "iso3c", destination = "country.name")
-  temp <- new_rt_all[new_rt_all$iso == country, ]
+  temp <- new_rt_all[new_rt_all$iso == code, ]
   replicates <- max(temp$rep)
   
   rts <- lapply(1:100, function(x) {
@@ -202,11 +202,14 @@ actual_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   return(rt)
 })
 
+names(actual_country_outputs) <- countries
+actual_country_outputs <- do.call(rbind, actual_country_outputs)
+
 unmit_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   
   code <- countries[i]
   country <- countrycode::countrycode(code, "iso3c", destination = "country.name")
-  temp <- new_rt_all[new_rt_all$iso == country, ]
+  temp <- new_rt_all[new_rt_all$iso == code, ]
   replicates <- max(temp$rep)
   
   rts <- lapply(1:100, function(x) {
@@ -227,6 +230,8 @@ unmit_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   return(rt)
 })
   
+names(unmit_country_outputs) <- countries
+unmit_country_outputs <- do.call(rbind, unmit_country_outputs)
 
 
 
