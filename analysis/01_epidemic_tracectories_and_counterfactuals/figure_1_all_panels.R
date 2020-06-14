@@ -1,4 +1,5 @@
 # Loading Required Libraries
+devtools::load_all()
 library(globallmicresults); library(tidyverse); library(lubridate);library(rgdal)
 library(raster); library(viridis); library(dplyr); library(fields)
 library(squire); library(rmapshaper); library(rgeos); library(ggpubr);
@@ -6,6 +7,9 @@ library(patchwork); library(conflicted)
 conflict_prefer("select", "dplyr")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("area", "patchwork")
+
+# Sourcing Required Functions 
+source("analysis/01_epidemic_tracectories_and_counterfactuals/functions.R")
 
 # Collating Report Dates
 date_0 <- "2020-06-01"
@@ -26,13 +30,16 @@ ecdc <- get_ecdc(date_0) %>%
   mutate(continentExp = factor(continentExp), dateRep = as.Date(dateRep)) 
 ecdc_deaths <- ecdc %>%
   left_join(wb_metadata, by = c("countryterritoryCode" = "iso")) %>%
+  mutate(continent = countrycode::countrycode(countryterritoryCode, "iso3c", destination = "continent"))
+
+ecdc_deaths_income <- ecdc_deaths %>%
   filter(!is.na(income_group)) %>%
   ungroup() %>%
   group_by(dateRep, income_group) %>%
   summarise(deaths = sum(deaths))
 
 # Plotting Cumulative Deaths by Income Strata 
-a <- ggplot(ecdc_deaths, aes(x = dateRep, y = deaths, fill = income_group)) +
+a <- ggplot(ecdc_deaths_income, aes(x = dateRep, y = deaths, fill = income_group)) +
   geom_bar(stat = "identity") +
   theme_bw() +
   theme(legend.position = "bottom") +
@@ -44,6 +51,23 @@ a <- ggplot(ecdc_deaths, aes(x = dateRep, y = deaths, fill = income_group)) +
                     labels = c("High Income", "Upper-Middle Income", "Lower Middle Income", "Low Income")) +
   guides(fill = guide_legend(reverse = TRUE)) +
   theme(legend.position = "none")
+
+# Alternative - Plotting by Continent
+ecdc_deaths_continent <- ecdc_deaths %>%
+  filter(!is.na(continent)) %>%
+  ungroup() %>%
+  group_by(dateRep, continent) %>%
+  summarise(deaths = sum(deaths))
+
+alt <- ggplot(ecdc_deaths_continent, aes(x = dateRep, y = deaths, fill = continent)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  labs(x = "Date", y = "Daily Deaths") +
+  scale_y_continuous(labels = scales::comma) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  theme(legend.position = "none")
+
 
 # Plotting R0 on the World Map
 grids <- grid_out_list(date_0)
@@ -112,6 +136,16 @@ c <- ggplot(mobility, aes(x = date, y = C_predict, group = iso3c)) +
   scale_x_date(limits = as.Date(c("2020-02-14","2020-06-01"))) +
   theme(legend.position = "none")
 
+min_mobility <- mobility %>%
+  group_by(iso3c) %>%
+  summarise(min_mob = min(C_predict), income_group = unique(income_group), continent = unique(continent))
+
+e <- ggplot(min_mobility, aes(x = continent, y = min_mob, colour = continent)) +
+  geom_boxplot(fill = NA, size = 1.5) +
+  geom_jitter(data = min_mobility, aes(x = continent, y = min_mob, fill = continent), 
+              pch = 21, size = 3, width = 0.2) +
+  theme_bw() +
+  theme(legend.position = "none")
 
 # Extracting Rt Results by Country
 rt <- pbapply::pblapply(seq_along(reports$id), function(x) {
@@ -128,6 +162,7 @@ rt <- pbapply::pblapply(seq_along(reports$id), function(x) {
       "Rt" = c(out$replicate_parameters$R0[y], 
                vapply(tt$change, out$scan_results$inputs$Rt_func, numeric(1), 
                       R0 = out$replicate_parameters$R0[y], Meff = out$replicate_parameters$Meff[y])),
+      "Meff" = out$replicate_parameters$Meff[y],
       "date" = c(as.character(out$replicate_parameters$start_date[y]), 
                  as.character(out$interventions$date_R0_change[match(tt$change, out$interventions$R0_change)])),
       "iso" = iso,
@@ -144,7 +179,7 @@ rt <- pbapply::pblapply(seq_along(reports$id), function(x) {
 names(rt) <- reports$country
 rt_all <- do.call(rbind, rt)
 rt_all$date <- as.Date(rt_all$date)
-rt_all <- rt_all[, c(3, 2, 1, 4, 5)]
+rt_all <- rt_all[, c(4, 3, 2, 1, 5, 6)]
 
 new_rt_all <- rt_all %>%
   group_by(iso, rep) %>% 
@@ -156,114 +191,122 @@ new_rt_all <- fill(new_rt_all, column_names, .direction = c("down"))
 new_rt_all <- fill(new_rt_all, column_names, .direction = c("up"))
 new_rt_all$continent <- countrycode::countrycode(new_rt_all$iso, "iso3c", destination = "continent")
 
-countries <- new_rt_all %>% group_by(iso, date) %>% 
+countries_Rt <- new_rt_all %>% group_by(iso, date) %>% 
   summarise(Rt = median(Rt)) 
-countries$continent <- countrycode::countrycode(countries$iso, "iso3c", destination = "continent")
+countries_Rt$continent <- countrycode::countrycode(countries_Rt$iso, "iso3c", destination = "continent")
 
-continents <- new_rt_all %>% group_by(continent, date) %>% 
+continents_Rt <- new_rt_all %>% group_by(continent, date) %>% 
   summarise(Rt = median(Rt)) %>%
   mutate(iso = continent)
 
-d <- ggplot(countries, aes(x=date, y = Rt, group = iso)) +
+d <- ggplot(countries_Rt, aes(x=date, y = Rt, group = iso)) +
   geom_line(lwd = 1, colour = "grey", alpha = 0.15) + 
   theme_bw() +
-  geom_line(data = continents, aes(x = date, y = Rt, colour = continent), size = 1.5) +
+  geom_line(data = continents_Rt, aes(x = date, y = Rt, colour = continent), size = 1.5) +
   lims(y = c(0, 4)) +
   scale_x_date(limits = as.Date(c("2020-02-14","2020-06-01"))) +
   theme(legend.position = "none")
 
-# Running Counterfactual Scenarios 
-# AFG has 2 entries for 11th March, 26th March etc - quite a few dates actually - why?
-countries <- unique(new_rt_all$iso)
-actual_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
-  
-  code <- countries[i]
-  country <- countrycode::countrycode(code, "iso3c", destination = "country.name")
-  temp <- new_rt_all[new_rt_all$iso == code, ]
-  replicates <- max(temp$rep)
-  
-  rts <- lapply(1:100, function(x) {
-    temp_pt2 <- temp[temp$rep == x, ]
-    Rt <- temp_pt2$Rt
-    tt_Rt <- as.numeric(temp_pt2$date) - as.numeric(temp_pt2$date[1])
-    x <- run_explicit_SEEIR_model(country = country,
-                                  R0 = Rt,
-                                  tt_R0 = tt_Rt,
-                                  dt = 0.1, 
-                                  day_return = TRUE,
-                                  replicates = 1, 
-                                  time_period = 365)
-    deaths <- format_output(x, var_select = "deaths")
-    deaths$country <- code 
-    return(deaths)
-  })
-  rt <- do.call(rbind, rts)
-  return(rt)
-})
+countries_Meff <- new_rt_all %>% group_by(iso) %>% 
+  summarise(Meff = median(Meff)) 
+countries_Meff$continent <- countrycode::countrycode(countries_Meff$iso, "iso3c", destination = "continent")
 
-names(actual_country_outputs) <- countries
+e <- ggplot(countries_Meff, aes(x = continent, y = Meff, colour = continent)) +
+  geom_boxplot(fill = NA, size = 1.5) +
+  geom_jitter(data = countries_Meff, aes(x = continent, y = Meff, fill = continent), 
+              pch = 21, size = 3, width = 0.2) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+# Getting Model Outputs from Our Runs Fitted to Empirical Data  
+grids <- grid_out_list(date_0)
+countries <- names(grids)
+actual_country_outputs <- vector(mode = "list", length = length(countries))
+for (i in 1:length(countries)) {
+  country <- countries[i]
+  x <- grids[[country]]
+  y <- format_output(x, var_select = "deaths") %>%
+    filter(!is.na(y)) %>%
+    group_by(t) %>%
+    summarise(deaths_025 = quantile(y, 0.025),
+              mean_deaths = mean(y),
+              deaths_975 = quantile(y, 0.975))
+  y$country <- country
+  actual_country_outputs[[i]] <- y
+}
 actual_country_outputs <- do.call(rbind, actual_country_outputs)
-actual_country_outputs$scenario <- "actual"
+actual_country_outputs$continent <- countrycode::countrycode(actual_country_outputs$country, "iso3c", destination = "continent")
 
-unmit_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
-  
-  code <- countries[i]
-  country <- countrycode::countrycode(code, "iso3c", destination = "country.name")
-  temp <- new_rt_all[new_rt_all$iso == code, ]
-  replicates <- max(temp$rep)
-  
-  rts <- lapply(1:100, function(x) {
-    temp_pt2 <- temp[temp$rep == x, ]
-    Rt <- temp_pt2$Rt[1]
-    x <- run_explicit_SEEIR_model(country = country,
-                                  R0 = Rt,
-                                  tt_R0 = 0,
-                                  dt = 0.1, 
-                                  day_return = TRUE,
-                                  replicates = 1, 
-                                  time_period = 365)
-    deaths <- format_output(x, var_select = "deaths")
-    deaths$country <- code 
-    return(deaths)
-  })
-  rt <- do.call(rbind, rts)
-  return(rt)
-})
-  
-names(unmit_country_outputs) <- countries
-unmit_country_outputs <- do.call(rbind, unmit_country_outputs)
-unmit_country_outputs$scenario <- "unmitigated"
+summary_actual_continent_outputs <- actual_country_outputs %>%
+  group_by(t, continent) %>%
+  summarise(deaths_025 = sum(deaths_025),
+            mean_deaths = sum(mean_deaths),
+            deaths_975 = sum(deaths_975))
+summary_actual_continent_outputs$scenario <- "actual"
 
-overall <- rbind(actual_country_outputs, unmit_country_outputs) %>%
-  mutate(continent = countrycode::countrycode(country, "iso3c", destination = "continent"))
-
-for_plotting <- overall %>%
-  group_by(scenario, continent, t) %>%
-  summarise(y = sum(y)) 
-
-ggplot(for_plotting, aes(x = t, y = y, col = scenario)) +
+ggplot(summary_actual_continent_outputs, aes(x = t, y = mean_deaths, col = continent)) +
   geom_line() +
-  facet_wrap(~continent)
+  facet_wrap(~continent, scales = "free_y")
+
+# Running Counterfactual Runs Based on the Fitted Baseline R0s and Start Dates  
+unmit_country_outputs <- vector(mode = "list", length = length(countries))
+for (i in 1:length(countries)) {
+  country <- countries[i]
+  x <- grids[[country]]
+  y <- unmit_sim(x, "2020-06-01")
+  z <- squire::format_output(y, "deaths") %>%
+    filter(!is.na(y)) %>%
+    group_by(t) %>%
+    summarise(deaths_025 = quantile(y, 0.025),
+              mean_deaths = mean(y),
+              deaths_975 = quantile(y, 0.975))
+  z$country <- country
+  unmit_country_outputs[[i]] <- z
+}
+unmit_country_outputs <- do.call(rbind, unmit_country_outputs)
+unmit_country_outputs$continent <- countrycode::countrycode(unmit_country_outputs$country, "iso3c", destination = "continent")
+
+summary_unmit_continent_outputs <- unmit_country_outputs %>%
+  group_by(t, continent) %>%
+  summarise(deaths_025 = sum(deaths_025),
+            mean_deaths = sum(mean_deaths),
+            deaths_975 = sum(deaths_975))
+summary_unmit_continent_outputs$scenario <- "unmit"
+
+ggplot(summary_unmit_continent_outputs, aes(x = t, y = mean_deaths, col = continent)) +
+  geom_line() +
+  facet_wrap(~continent, scales = "free_y")
+
+overall <- rbind(summary_actual_continent_outputs, summary_unmit_continent_outputs)
+
+e <- ggplot(overall, aes(x = t, y = log(mean_deaths), col = scenario)) +
+  geom_line() +
+  facet_wrap(~continent, scales = "free_y")
+
 
 layout <- "
-AAABBBBB
-AAABBBBB
-CC######
-CC######
-DD######
-DD######
+BBBDDDDD
+BBBDDDDD
+EEEEEEEE
+EEEEEEEE
+EEEEEEEE
 "
-a + b + c + d + 
+d + e + b +
   plot_layout(design = layout)
 
-
-
-
-
-
-
-
-
+layout <- "
+BBBDDDDD
+BBBDDDDD
+CCCDDDDD
+CCCDDDDD
+EEEEEEEE
+EEEEEEEE
+EEEEEEEE
+EEEEEEEE
+"
+c + d + e + b +
+  plot_layout(design = layout)
 
 
 
