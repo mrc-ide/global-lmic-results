@@ -174,7 +174,6 @@ d <- ggplot(countries, aes(x=date, y = Rt, group = iso)) +
 
 # Running Counterfactual Scenarios 
 # AFG has 2 entries for 11th March, 26th March etc - quite a few dates actually - why?
-unique(new_rt_all$rep)
 countries <- unique(new_rt_all$iso)
 actual_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   
@@ -204,6 +203,7 @@ actual_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
 
 names(actual_country_outputs) <- countries
 actual_country_outputs <- do.call(rbind, actual_country_outputs)
+actual_country_outputs$scenario <- "actual"
 
 unmit_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   
@@ -232,8 +232,18 @@ unmit_country_outputs <- pbapply::pblapply(1:length(countries), function(i) {
   
 names(unmit_country_outputs) <- countries
 unmit_country_outputs <- do.call(rbind, unmit_country_outputs)
+unmit_country_outputs$scenario <- "unmitigated"
 
+overall <- rbind(actual_country_outputs, unmit_country_outputs) %>%
+  mutate(continent = countrycode::countrycode(country, "iso3c", destination = "continent"))
 
+for_plotting <- overall %>%
+  group_by(scenario, continent, t) %>%
+  summarise(y = sum(y)) 
+
+ggplot(for_plotting, aes(x = t, y = y, col = scenario)) +
+  geom_line() +
+  facet_wrap(~continent)
 
 layout <- "
 AAABBBBB
