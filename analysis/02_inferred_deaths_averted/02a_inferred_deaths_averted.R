@@ -2,10 +2,23 @@
 
 library(globallmicresults)
 library(tidyverse)
+library(lubridate)
+library(rgdal)
+library(raster)
+library(viridis)
+library(plyr)
+library(fields)
+library(squire)
+library(rmapshaper)
+library(rgeos)
+library(ggpubr)
+
 
 ##  ------------------------------
 ## Analysis ------------------------------
 ##  ------------------------------
+
+date_0 <- "2020-06-01"
 
 # get the reports
 grids <- grid_out_list(date_0)
@@ -19,7 +32,7 @@ unmit_sim_i <- function(x, i) {
     day_return = TRUE,
     replicates = 1,
     dt = 0.1,
-    time_period = as.integer(as.Date(date_0) - as.Date(x$replicate_parameters$start_date[i])),
+    time_period = as.integer(as.Date(date_0) - as.Date(x$replicate_parameters$start_date[i]))
   )
   return(run)
 }
@@ -91,25 +104,42 @@ unmit_sim <- function(x) {
 
 # Here is an example for one country. So repeat and save as a table for continent level
 # and one for country. And then some figures as you see best to summarise this
+go_all_data <- do.call(rbind, sapply(names(grids), function(x){
 
-unmit_AFG <- unmit_sim(grids$AFG)
+  print(x)
 
-total_deaths_unmit <- squire::format_output(unmit_AFG, "deaths")
-total_deaths_unmit_summary <- total_deaths_unmit %>%
-  filter(!is.na(y)) %>%
-  group_by(replicate) %>%
-  mutate(cy = cumsum(y)) %>%
-  ungroup %>%
-  group_by(t) %>%
-  summarise(deaths_025 = quantile(cy, 0.025),
-            mean_deaths = mean(cy),
-            deaths_975 = quantile(cy, 0.975))
+  unmit_country <- unmit_sim(grids$AFG)
 
-res_df <- total_deaths_unmit_summary[nrow(total_deaths_unmit_summary), 2:4] -
-  sum(grids$AFG$scan_results$inputs$data$deaths)
+  total_deaths_unmit <- squire::format_output(unmit_country, "deaths")
+  total_deaths_unmit_summary <- total_deaths_unmit %>%
+    filter(!is.na(y)) %>%
+    group_by(replicate) %>%
+    mutate(cy = cumsum(y)) %>%
+    ungroup %>%
+    group_by(t) %>%
+    dplyr::summarise(deaths_025 = quantile(cy, 0.025),
+              mean_deaths = mean(cy),
+              deaths_975 = quantile(cy, 0.975))
 
+  res_df <- total_deaths_unmit_summary[nrow(total_deaths_unmit_summary), 2:4] -
+    sum(grids[[x]]$scan_results$inputs$data$deaths)
+
+  res_df
+
+}, simplify = FALSE))
+
+go_all_data$GID_0 <- row.names(go_all_data)
 
 ##  ------------------------------
 ## Plotting ------------------------------
 ##  ------------------------------
+
+global_shp <- readOGR("analysis/data/shp/global_shapefile_small_islands_removed.shp", stringsAsFactors = FALSE)
+global_shp_df <- tidy(global_shp, region = "GID_0") %>% data.table()
+colnames(global_shp_df)[which(colnames(global_shp_df) == "id")] <- "GID_0"
+
+global_shp_simp_df_data <- join(global_shp_df, as.data.frame(global_shp_all_data_simp), by = "GID_0")
+
+
+
 
