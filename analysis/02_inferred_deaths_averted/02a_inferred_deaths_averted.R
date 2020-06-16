@@ -2,33 +2,52 @@
 
 library(globallmicresults)
 library(tidyverse)
+library(lubridate)
+library(rgdal)
+library(raster)
+library(viridis)
+library(plyr)
+library(fields)
+library(squire)
+library(rmapshaper)
+library(rgeos)
+library(ggpubr)
+library(broom)
+library(data.table)
 
 ##  ------------------------------
 ## Analysis ------------------------------
 ##  ------------------------------
 
+date_0 <- "2020-06-01"
+
 # get the reports
 grids <- grid_out_list(date_0)
 
 # function to run an unmitigated simulation using calibrate object (x)
-unmit_sim_i <- function(x, i) {
+unmit_sim_i <- function(x, i, modifier = 1) {
+
+  R0_use <- if(i == "mean") mean(x$replicate_parameters$R) else x$replicate_parameters$R[i]
+  R0_use <- R0_use * modifier
+
+  start_date_use <- if(i == "mean") mean(x$replicate_parameters$start_date) else x$replicate_parameters$start_date[i]
 
   run <- squire::run_explicit_SEEIR_model(
     country = x$parameters$country,
-    R0 = x$replicate_parameters$R0[i],
+    R0 = R0_use,
     day_return = TRUE,
     replicates = 1,
     dt = 0.1,
-    time_period = as.integer(as.Date(date_0) - as.Date(x$replicate_parameters$start_date[i])),
+    time_period = as.integer(as.Date(date_0) - as.Date(start_date_use))
   )
-  return(run)
+  run
 }
 
 # function to run multiple unmitigated simulations based on replicate_parameters
-unmit_sim <- function(x) {
+unmit_sim <- function(x, modifier) {
 
   # run the first one
-  r <- unmit_sim_i(x, 1)
+  r <- unmit_sim_i(x, "mean", modifier) # this was set to 1, there's lots of different values here - do we not want to either cycle through all of them or take the mean R0 of everything?
 
   # assign to our results
   out <- list()
@@ -79,7 +98,7 @@ unmit_sim <- function(x) {
 
   r$output <- outarray
   r$parameters$replicates <- length(out)
-  return(r)
+  r
 }
 
 ## Now we want to run an unmitgated epidemic (as well as an x% reduction epidemic
@@ -91,25 +110,51 @@ unmit_sim <- function(x) {
 
 # Here is an example for one country. So repeat and save as a table for continent level
 # and one for country. And then some figures as you see best to summarise this
+all_scenarios_go <- do.call(rbind, sapply(c(1, 0.2, 0.4), function(y){
 
-unmit_AFG <- unmit_sim(grids$AFG)
+  go_all_data <- do.call(rbind, sapply(names(grids), function(t){
 
-total_deaths_unmit <- squire::format_output(unmit_AFG, "deaths")
-total_deaths_unmit_summary <- total_deaths_unmit %>%
-  filter(!is.na(y)) %>%
-  group_by(replicate) %>%
-  mutate(cy = cumsum(y)) %>%
-  ungroup %>%
-  group_by(t) %>%
-  summarise(deaths_025 = quantile(cy, 0.025),
-            mean_deaths = mean(cy),
-            deaths_975 = quantile(cy, 0.975))
+    print(paste0(y, " - ", t))
 
-res_df <- total_deaths_unmit_summary[nrow(total_deaths_unmit_summary), 2:4] -
-  sum(grids$AFG$scan_results$inputs$data$deaths)
+    unmit_country <- unmit_sim(x = grids[[which(names(grids) == t)]],
+                               modifier = y)
+
+    total_deaths_unmit <- squire::format_output(unmit_country, "deaths")
+    total_deaths_unmit_summary <- total_deaths_unmit %>%
+      filter(!is.na(y)) %>%
+      group_by(replicate) %>%
+      mutate(cy = cumsum(y)) %>%
+      ungroup %>%
+      group_by(t) %>%
+      dplyr::summarise(deaths_025 = quantile(cy, 0.025),
+                       mean_deaths = mean(cy),
+                       deaths_975 = quantile(cy, 0.975))
+
+    res_df <- total_deaths_unmit_summary[nrow(total_deaths_unmit_summary), 2:4] -
+      sum(grids[[t]]$scan_results$inputs$data$deaths)
+    res_df$ISO <- t
+
+    res_df
+
+  }, simplify = FALSE))
+
+  go_all_data$R0_modifier <- y
+  go_all_data
+
+}, simplify = FALSE))
 
 
 ##  ------------------------------
 ## Plotting ------------------------------
 ##  ------------------------------
+
+
+global_shp <- readOGR("analysis/data/shp/global_shapefile_small_islands_removed.shp.shp", stringsAsFactors = FALSE)
+global_shp_df <- tidy(global_shp, region = "GID_0") %>% data.table()
+colnames(global_shp_df)[which(colnames(global_shp_df) == "id")] <- "ISO"
+
+global_shp_simp_df_data <- join(global_shp_df, as.data.frame(global_shp_all_data_simp), by = "GID_0")
+
+
+
 
