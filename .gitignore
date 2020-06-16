@@ -3,3 +3,6 @@
 .RData
 .Ruserdata
 analysis/data/shp/gadm36_0.shp
+*.png
+*.svg
+dummy

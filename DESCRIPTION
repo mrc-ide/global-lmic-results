@@ -19,4 +19,11 @@ Imports:
     here,
     DBI,
     pbapply,
-    squire (>= 0.4.15)
+    squire (>= 0.4.15),
+    countrycode,
+    ggfortify,
+    factoextra,
+    rmapshaper
+Remotes:
+    mrc-ide/squire
+
