@@ -18,7 +18,20 @@ knitr::opts_chunk$set(
 
 ## Research compendium for COVID-19 reports in LMICs
 
-This is a working R compendium (think R package but for reproducible analysis). The analysis directory contains R scripts used to generate the results. The structure within analysis is as follows:
+This is a working R compendium (think R package but for reproducible analysis). The analysis directory contains R scripts used to generate the results. 
+
+### Installation
+
+```
+git clone https://github.com/mrc-ide/global-lmic-results.git
+cd global-lmic-results
+open globalmicresults.Rproj
+devtools::install_deps()
+```
+
+### Overview
+
+The structure within analysis is as follows:
 
 ```
 analysis/
