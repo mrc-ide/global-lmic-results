@@ -11,7 +11,7 @@ library(tidyverse)
 grids <- grid_out_list(date_0)
 
 # function to run an unmitigated simulation using calibrate object (x)
-unmit_sim_i <- function(x, i) {
+unmit_sim_i <- function(x, i, date_end) {
 
   run <- squire::run_explicit_SEEIR_model(
     country = x$parameters$country,
@@ -19,16 +19,16 @@ unmit_sim_i <- function(x, i) {
     day_return = TRUE,
     replicates = 1,
     dt = 0.1,
-    time_period = as.integer(as.Date(date_0) - as.Date(x$replicate_parameters$start_date[i])),
+    time_period = as.integer(as.Date(date_end) - as.Date(x$replicate_parameters$start_date[i]))
   )
   return(run)
 }
 
 # function to run multiple unmitigated simulations based on replicate_parameters
-unmit_sim <- function(x) {
+unmit_sim <- function(x, date_end) {
 
   # run the first one
-  r <- unmit_sim_i(x, 1)
+  r <- unmit_sim_i(x, 1, date_end)
 
   # assign to our results
   out <- list()
@@ -42,30 +42,26 @@ unmit_sim <- function(x) {
   for(i in 2:nrow(x$replicate_parameters)) {
 
     beta <- squire:::beta_est_explicit(dur_IMild = r$parameters$dur_IMild,
-                                 dur_ICase = r$parameters$dur_ICase,
-                                 prob_hosp = r$parameters$prob_hosp,
-                                 mixing_matrix = mat,
-                                 R0 = x$replicate_parameters$R0[i])
+                                       dur_ICase = r$parameters$dur_ICase,
+                                       prob_hosp = r$parameters$prob_hosp,
+                                       mixing_matrix = mat,
+                                       R0 = x$replicate_parameters$R0[i])
     r$model$set_user(beta_set = beta)
 
-    time_period <- as.integer(as.Date(date_0) - as.Date(x$replicate_parameters$start_date[i]))
+    time_period <- as.integer(as.Date(date_end) - as.Date(x$replicate_parameters$start_date[i]))
     t <- seq(from = 1, to = time_period/x$parameters$dt)
-    t <- round(seq(1/x$parameters$dt, length(t)+(1/x$parameters$dt), by=1/x$parameters$dt))
+    t <- round(seq(1/x$parameters$dt, length(t) + (1/x$parameters$dt), by = 1/x$parameters$dt))
     r$output <- r$model$run(t, replicate = 1)
     out[[i]] <- r
   }
 
-  # differnet lengths of sims
+  # different lengths of sims
   num_rows <- unlist(lapply(out, function(x){nrow(x$output)}))
   max_rows <- max(num_rows)
   seq_max <- seq_len(max_rows)
 
   # build results again
-  outarray <- array(NA, dim = c(
-    max_rows,
-    ncol(out[[1]]$output),
-    length(out))
-    )
+  outarray <- array(NA, dim = c(max_rows, ncol(out[[1]]$output), length(out)))
 
   # assign the names
   colnames(outarray) <- colnames(x$output)
@@ -73,8 +69,8 @@ unmit_sim <- function(x) {
 
   # fill it in
   for(i in seq_len(length(out))){
-    outarray[tail(seq_max, num_rows[i]),,i] <- out[[i]]$output[,,1]
-    outarray[,"time",i] <- outarray[,"time",i] - max(outarray[,"time",i])
+    outarray[tail(seq_max, num_rows[i]), ,i] <- out[[i]]$output[, , 1]
+    outarray[, "time", i] <- outarray[, "time", i] - max(outarray[, "time", i], na.rm = TRUE)
   }
 
   r$output <- outarray
@@ -92,10 +88,21 @@ unmit_sim <- function(x) {
 # Here is an example for one country. So repeat and save as a table for continent level
 # and one for country. And then some figures as you see best to summarise this
 
-unmit_AFG <- unmit_sim(grids$AFG)
+x <- unmit_sim(grids$AFG, "2020-06-01")
 
-total_deaths_unmit <- squire::format_output(unmit_AFG, "deaths")
-total_deaths_unmit_summary <- total_deaths_unmit %>%
+deaths_unmit <- squire::format_output(x, "deaths")
+
+daily_deaths_unmit_summary <- deaths_unmit %>%
+  filter(!is.na(y)) %>%
+  group_by(t) %>%
+  summarise(deaths_025 = quantile(y, 0.025),
+            mean_deaths = mean(y),
+            deaths_975 = quantile(y, 0.975))
+plot(daily_deaths_unmit_summary$t, daily_deaths_unmit_summary$mean_deaths, type = "l", lwd = 2)
+lines(daily_deaths_unmit_summary$t, daily_deaths_unmit_summary$deaths_025)
+lines(daily_deaths_unmit_summary$t, daily_deaths_unmit_summary$deaths_975)
+
+total_deaths_unmit_summary <- deaths_unmit %>%
   filter(!is.na(y)) %>%
   group_by(replicate) %>%
   mutate(cy = cumsum(y)) %>%
@@ -104,6 +111,9 @@ total_deaths_unmit_summary <- total_deaths_unmit %>%
   summarise(deaths_025 = quantile(cy, 0.025),
             mean_deaths = mean(cy),
             deaths_975 = quantile(cy, 0.975))
+
+plot(total_deaths_unmit_summary$t, total_deaths_unmit_summary$mean_deaths)
+
 
 res_df <- total_deaths_unmit_summary[nrow(total_deaths_unmit_summary), 2:4] -
   sum(grids$AFG$scan_results$inputs$data$deaths)

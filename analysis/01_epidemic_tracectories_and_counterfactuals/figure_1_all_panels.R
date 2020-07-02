@@ -12,7 +12,7 @@ conflict_prefer("area", "patchwork")
 source("analysis/01_epidemic_tracectories_and_counterfactuals/functions.R")
 
 # Collating Report Dates
-date_0 <- "2020-06-01"
+date_0 <- "2020-06-22"
 reports <- reports_day(date_0)
 
 # Accessing World Bank Metadata
@@ -34,18 +34,19 @@ ecdc_deaths <- ecdc %>%
 
 ecdc_deaths_income <- ecdc_deaths %>%
   filter(!is.na(income_group)) %>%
+  filter(dateRep > "2020-03-01") %>%
   ungroup() %>%
   group_by(dateRep, income_group) %>%
   summarise(deaths = sum(deaths))
 
 # Plotting Cumulative Deaths by Income Strata 
 a <- ggplot(ecdc_deaths_income, aes(x = dateRep, y = deaths, fill = income_group)) +
-  geom_bar(stat = "identity") +
+  geom_bar(stat = "identity", colour = "black") +
   theme_bw() +
   theme(legend.position = "bottom") +
   labs(x = "Date", y = "Daily Deaths") +
   scale_y_continuous(labels = scales::comma) +
-  scale_fill_manual(values = c("#999999", "#E69F00", "#56B4E9", "blue"), 
+  scale_fill_manual(values = c("#9381FF", "#F18F01", "#DB2763", "#26A96C"), 
                     name = "Income Strata",
                     breaks = c("High income", "Upper middle income", "Lower middle income", "Low income"),
                     labels = c("High Income", "Upper-Middle Income", "Lower Middle Income", "Low Income")) +
